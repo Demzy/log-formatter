@@ -48,6 +48,66 @@ def parse_line(line):
 
     return result
 
+
+
+SESSION_START_KEYWORDS = ["SESSION STARTED", "SYSTEM STARTED", "STARTUP", "BOOTING"]
+SESSION_END_KEYWORDS = ["SESSION ENDED", "SHUTDOWN", "SYSTEM STOPPED"]
+
+def split_sessions(parsed_lines):
+    sessions = []           # holds all complete sessions
+    current_session = []    # holds current session lines.
+
+    for line in parsed_lines:
+        # Line is a dictionary from parsed_lines()
+        # get the message text and uppercase it for comparison
+        message = line["message"].upper()
+
+        # checks if this line starts a new session
+        if any(keyword in message for keyword in SESSION_START_KEYWORDS):
+            
+            # If we already have lines, save previous session first
+            # This handles crashes (sessions with no end marker)
+            if current_session: # Only save if not empty
+                sessions.append({
+                    "lines"     : current_session,
+                    "status"  : "INCOMPLETE" # no proper end found
+                })
+
+
+                #Start fresh session
+                # [line] creates a new list containing just this line
+            current_session = [line]
+
+        # Check if this line ends a session
+        elif any(keyword in message for keyword in SESSION_END_KEYWORDS):
+            
+            # add this final line to current session
+            current_session.append(line)
+
+            # save as complete: had proper start and end
+            sessions.append({
+                "lines"     : current_session,
+                "status"  : "COMPLETE" # proper shutdown found
+            })
+            current_session = [] # reset for next session
+        # Normal line - just add to current session
+        else:
+            current_session.append(line)
+
+    # handles remaining lines after loop ends
+    # if current_session has lines but never got a proper end 
+    # That means crash or monitor is still running
+    if current_session:
+        sessions.append({
+            "lines"     : current_session,
+            "status"  : "INCOMPLETE" # incomplete - possible crash
+        })
+
+    return sessions
+    # returns list of session dictionaries
+    # each session has "lines and "status"
+
+
 if __name__ == "__main__":
 
     test_lines = [
@@ -68,3 +128,29 @@ if __name__ == "__main__":
         print(f"SEVERITY : {parsed['severity']} (level {parsed['level']})")
         print("-" * 50)
 
+# Test split_sessions
+print("\nTesting session splitter...")
+print("=" * 50)
+
+test_log = [
+    "system startd successfully",
+    "INFO loading drivers",
+    "WARNINg disk slow",
+    "ERROR disk failed",
+    "system shutdown cleanly",
+    "system started sucessfully",
+    "INFO all system normal",
+]
+
+# parse every line first
+parsed = [parse_line(line) for line in test_log]
+
+# split into sessions
+sessions = split_sessions(parsed)
+
+print(f"Found {len(sessions)} sessions")
+for i, session in enumerate(sessions):
+    print(f"\nSession {i+1}: {session['status']}")
+    print(f"Lines: {len(session['lines'])}")
+    for line in session['lines']:
+        print(f"    {line['message']}")
